@@ -27,6 +27,7 @@ def load_inference_model(
     overrides: dict | None = None,
     use_ema: bool = False,
     return_checkpoint: bool = True,
+    expose_feat: bool = False,
 ) -> tuple[torch.nn.Module, MLIPInferenceCheckpoint] | torch.nn.Module:
     checkpoint: MLIPInferenceCheckpoint = torch.load(
         checkpoint_location, map_location="cpu", weights_only=False
@@ -52,6 +53,10 @@ def load_inference_model(
         load_state_dict(model, matched_dict, strict=True)
     else:
         load_state_dict(model, checkpoint.model_state_dict, strict=True)
+
+    if expose_feat:
+        print("feature exposure requested, wrapping model with ExposeFeatWrapper")
+        model = ExposeFeatWrapper(model)
 
     return (model, checkpoint) if return_checkpoint is True else model
 
@@ -104,3 +109,32 @@ def update_configs(original_config, new_config):
         else:
             updated_config[k] = v
     return updated_config
+
+class ExposeFeatWrapper(torch.nn.Module):
+    def __init__(self, orig_model):
+
+        super().__init__()
+        self.orig_model = orig_model
+
+        head = self.orig_model.module.output_heads.energyandforcehead.head
+        energy_block = head.energy_block
+
+        energy_block.register_forward_hook(
+            lambda m, inp, out: setattr(self, "bb_feat", inp[0].detach())
+        )
+
+        energy_block[-1].register_forward_hook(
+            lambda m, inp, out: setattr(self, "ll_feat", inp[0].detach())
+        )
+
+    def forward(self, x):
+        outputs = self.orig_model(x)
+        outputs["bb_feat"] = self.bb_feat
+        outputs["ll_feat"] = self.ll_feat
+        return outputs
+
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self.orig_model, name)

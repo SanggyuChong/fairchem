@@ -71,6 +71,7 @@ def get_predict_unit(
     overrides: dict | None = None,
     device: Literal["cuda", "cpu"] | None = None,
     cache_dir: str = CACHE_DIR,
+    expose_feat: bool = False,
 ) -> MLIPPredictUnit:
     """
     Retrieves a prediction unit for a specified model.
@@ -109,7 +110,7 @@ def get_predict_unit(
     )
     atom_refs = get_isolated_atomic_energies(model_name, cache_dir)
     return load_predict_unit(
-        checkpoint_path, inference_settings, overrides, device, atom_refs
+        checkpoint_path, inference_settings, overrides, device, atom_refs, expose_feat,
     )
 
 

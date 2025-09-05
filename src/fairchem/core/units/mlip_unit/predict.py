@@ -48,10 +48,10 @@ if TYPE_CHECKING:
 def collate_predictions(predict_fn):
     @wraps(predict_fn)
     def collated_predict(
-        predict_unit, data: AtomicData, undo_element_references: bool = True
+        predict_unit, data: AtomicData, undo_element_references: bool = True, expose_feat: bool = False,
     ):
         # Get the full prediction dictionary from the original predict method
-        preds = predict_fn(predict_unit, data, undo_element_references)
+        preds = predict_fn(predict_unit, data, undo_element_references, expose_feat)
         if gp_utils.initialized():
             data.batch = data.batch_full
         collated_preds = defaultdict(list)
@@ -69,8 +69,10 @@ def collate_predictions(predict_fn):
                     raise RuntimeError(
                         f"Unrecognized task level={task.level} found in data batch at position {i}"
                     )
-
-        return {prop: torch.cat(val) for prop, val in collated_preds.items()}
+        collated_predict_dict = {prop: torch.cat(val) for prop, val in collated_preds.items()}
+        collated_predict_dict['bb_feat'] = preds['bb_feat']
+        collated_predict_dict['ll_feat'] = preds['ll_feat']
+        return collated_predict_dict
 
     return collated_predict
 
@@ -91,6 +93,7 @@ class MLIPPredictUnit(PredictUnit[AtomicData], MLIPPredictUnitProtocol):
         inference_settings: InferenceSettings | None = None,
         seed: int = 41,
         atom_refs: dict | None = None,
+        expose_feat: bool = False,
     ):
         super().__init__()
         os.environ[CURRENT_DEVICE_TYPE_STR] = device
@@ -130,8 +133,10 @@ class MLIPPredictUnit(PredictUnit[AtomicData], MLIPPredictUnitProtocol):
             )
 
         self.model, checkpoint = load_inference_model(
-            inference_model_path, use_ema=True, overrides=overrides
+            inference_model_path, use_ema=True, overrides=overrides, expose_feat=expose_feat,
         )
+        self.expose_feat = expose_feat
+
         tasks = [
             hydra.utils.instantiate(task_config)
             for task_config in checkpoint.tasks_config
@@ -204,7 +209,7 @@ class MLIPPredictUnit(PredictUnit[AtomicData], MLIPPredictUnitProtocol):
 
     @collate_predictions
     def predict(
-        self, data: AtomicData, undo_element_references: bool = True
+        self, data: AtomicData, undo_element_references: bool = True, expose_feat: bool = False,
     ) -> dict[str, torch.tensor]:
         if not self.lazy_model_intialized:
             # merge everything on CPU
@@ -264,6 +269,10 @@ class MLIPPredictUnit(PredictUnit[AtomicData], MLIPPredictUnitProtocol):
         pred_output = {}
         with inference_context, tf32_context:
             output = self.model(data_device)
+            # print(output['omat_embeddings']['embeddings'])
+            # print(output['bb_feat'])
+            # print(output['omat_embeddings']['embeddings'].shape)
+            # print(output['bb_feat'].shape)
             for task_name, task in self.tasks.items():
                 pred_output[task_name] = task.normalizer.denorm(
                     output[task_name][task.property]
@@ -272,6 +281,9 @@ class MLIPPredictUnit(PredictUnit[AtomicData], MLIPPredictUnitProtocol):
                     pred_output[task_name] = task.element_references.undo_refs(
                         data_device, pred_output[task_name]
                     )
+            if expose_feat:
+                pred_output['bb_feat'] = output['bb_feat']
+                pred_output['ll_feat'] = output['ll_feat']
 
         return pred_output
 

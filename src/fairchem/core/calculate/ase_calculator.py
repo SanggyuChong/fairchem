@@ -41,6 +41,7 @@ class FAIRChemCalculator(Calculator):
         predict_unit: MLIPPredictUnit,
         task_name: UMATask | str | None = None,
         seed: int | None = None,  # deprecated
+        expose_feat: bool = False,
     ):
         """
         Initialize the FAIRChemCalculator from a model MLIPPredictUnit
@@ -99,6 +100,7 @@ class FAIRChemCalculator(Calculator):
             r_edges=False,
             r_data_keys=["spin", "charge"],
         )
+        self.expose_feat = expose_feat
 
     @property
     def task_name(self) -> str:
@@ -166,7 +168,7 @@ class FAIRChemCalculator(Calculator):
         return state
 
     def calculate(
-        self, atoms: Atoms, properties: list[str], system_changes: list[str]
+        self, atoms: Atoms, properties: list[str], system_changes: list[str],
     ) -> None:
         """
         Perform the calculation for the given atomic structure.
@@ -206,7 +208,7 @@ class FAIRChemCalculator(Calculator):
 
             # Batch and predict
             batch = data_list_collater([data_object], otf_graph=True)
-            pred = self.predictor.predict(batch)
+            pred = self.predictor.predict(batch, expose_feat=self.expose_feat)
 
             # Collect the results into self.results
             self.results = {}
@@ -224,6 +226,10 @@ class FAIRChemCalculator(Calculator):
                     stress = pred[calc_key].detach().cpu().numpy().reshape(3, 3)
                     stress_voigt = full_3x3_to_voigt_6_stress(stress)
                     self.results["stress"] = stress_voigt
+            if self.expose_feat:
+                print("we are trying")
+                self.results["bb_feat"] = pred["bb_feat"]
+                self.results["ll_feat"] = pred["ll_feat"]
 
     def _get_single_atom_energies(self, atoms) -> dict:
         """

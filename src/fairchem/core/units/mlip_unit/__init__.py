@@ -28,6 +28,7 @@ def load_predict_unit(
     overrides: dict | None = None,
     device: Literal["cuda", "cpu"] | None = None,
     atom_refs: dict | None = None,
+    expose_feat: bool = False,
 ) -> MLIPPredictUnit:
     """Load a MLIPPredictUnit from a checkpoint file.
 
@@ -57,4 +58,5 @@ def load_predict_unit(
         inference_settings=inference_settings,
         overrides=overrides,
         atom_refs=atom_refs,
+        expose_feat=expose_feat,
     )
